@@ -20,7 +20,7 @@ with tab_staff:
     with st.form("bg_staff_form", clear_on_submit=True):
         col1, col2 = st.columns(2)
         name = col1.text_input("Full Name")
-        role = col2.selectbox("Role", ["Operator", "Driver", "Inspector", "Admin"])
+        role = col2.selectbox("Role", ["Operator", "Driver", "Engineer", "Admin_staff", "Worker",])
         if st.form_submit_button("Save Staff Member"):
             if name:
                 conn.table("bg_staff_master").insert({"name": name, "role": role}).execute()
