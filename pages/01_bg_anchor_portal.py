@@ -12,13 +12,35 @@ conn = st.connection("supabase", type=SupabaseConnection)
 # --- 3. FETCH DATA FROM EXISTING BG TABLES ---
 # Get Customers for dropdown
 cust_query = conn.table("bg_customer_master").select("customer_name").execute()
-cust_list = [c['customer_name'] for c in cust_query.data] if cust_query.data else []
+cust_list = sorted([c['customer_name'] for c in cust_query.data]) if cust_query.data else []
 
 # Get Anchors from Staff Master
 staff_query = conn.table("bg_staff_master").select("name").in_("name", ["Ammu", "Kishore"]).execute()
 anchor_list = [a['name'] for a in staff_query.data] if staff_query.data else ["Ammu", "Kishore"]
 
-# --- 4. THE GATE FORM ---
+# --- NEW FEATURE: QUICK CUSTOMER ADD ---
+with st.expander("➕ Register New Customer (Add here if not in dropdown below)", expanded=False):
+    with st.form("quick_add_customer", clear_on_submit=True):
+        nc_col1, nc_col2, nc_col3 = st.columns(3)
+        new_cust_name = nc_col1.text_input("Company Name").upper()
+        new_cust_person = nc_col2.text_input("Contact Person")
+        new_cust_phone = nc_col3.text_input("Phone Number")
+        
+        if st.form_submit_button("💾 Save New Customer"):
+            if new_cust_name:
+                conn.table("bg_customer_master").insert({
+                    "customer_name": new_cust_name,
+                    "contact_person": new_cust_person,
+                    "phone": new_cust_phone
+                }).execute()
+                st.success(f"Customer {new_cust_name} added to bg_customer_master!")
+                st.rerun()
+            else:
+                st.error("Company Name is required.")
+
+st.markdown("---")
+
+# --- 4. THE GATE FORM (KEEPING ALL ORIGINAL FEATURES) ---
 with st.form("bg_job_launch_form", clear_on_submit=True):
     st.subheader("📍 Job Details")
     col1, col2, col3 = st.columns(3)
