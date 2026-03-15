@@ -40,21 +40,21 @@ with st.expander("➕ Register New Customer (Add here if not in dropdown below)"
 
 st.markdown("---")
 
-# --- 4. THE GATE FORM (KEEPING ALL ORIGINAL FEATURES) ---
+# --- 4. THE GATE FORM (INCLUDING PO DATE) ---
 with st.form("bg_job_launch_form", clear_on_submit=True):
-    st.subheader("📍 Job Details")
-    col1, col2, col3 = st.columns(3)
+    st.subheader("📍 Job & PO Details")
+    col1, col2, col3, col_date = st.columns([2, 1, 1, 1])
     
     customer = col1.selectbox("Customer Name", options=["-- Select --"] + cust_list)
     job_code = col2.text_input("New Job Code (Unique ID)", placeholder="e.g., BG-2026-001")
     po_no = col3.text_input("PO Reference Number")
+    po_date = col_date.date_input("PO Date") # NEW FIELD ADDED
     
     st.divider()
     st.subheader("📐 Drawing & Dispatch Control")
     col4, col5, col6 = st.columns(3)
     
     drw_ref = col4.text_input("Drawing Reference / Rev No.")
-    # Standardizing status as per our strategy
     drw_stat = col5.selectbox("Drawing Status", ["Pending", "In-Progress", "Approved"])
     dispatch_date = col6.date_input("Promised Dispatch Date")
     
@@ -65,11 +65,11 @@ with st.form("bg_job_launch_form", clear_on_submit=True):
 
     if st.form_submit_button("🚀 Finalize Gate & Launch Job"):
         if customer != "-- Select --" and job_code:
-            # We use bg_job_master specifically
             payload = {
                 "job_code": job_code.upper(),
                 "customer_name": customer,
                 "po_no": po_no,
+                "po_date": str(po_date), # SAVED TO DATABASE
                 "po_value": po_val,
                 "drawing_ref": drw_ref,
                 "drawing_status": drw_stat,
