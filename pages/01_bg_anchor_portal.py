@@ -2,112 +2,67 @@ import streamlit as st
 from st_supabase_connection import SupabaseConnection
 
 # --- 1. PAGE CONFIG ---
-st.set_page_config(page_title="B&G Anchor Suit", layout="wide", page_icon="⚓")
-st.title("⚓ Anchor Portal: Master Data (V2)")
-st.markdown("---")
+st.set_page_config(page_title="B&G Anchor Gate", layout="wide", page_icon="🏗️")
+st.title("🏗️ Anchor Gate: Job Activation")
+st.info("Winning the Order → Creating the Job Code → Setting Drawing Status")
 
 # --- 2. DATABASE CONNECTION ---
 conn = st.connection("supabase", type=SupabaseConnection)
 
-# --- 3. NAVIGATION TABS ---
-tab_staff, tab_vehicle, tab_customer = st.tabs([
-    "👥 Staff Master", "🚛 Vehicle Master", "🏢 Customer Master"
-])
+# --- 3. FETCH DATA FROM EXISTING BG TABLES ---
+# Get Customers for dropdown
+cust_query = conn.table("bg_customer_master").select("customer_name").execute()
+cust_list = [c['customer_name'] for c in cust_query.data] if cust_query.data else []
 
-# --- TAB: STAFF ---
-with tab_staff:
-    st.subheader("Register Employees")
-    with st.form("bg_staff_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        name = col1.text_input("Full Name")
-        role = col2.selectbox("Role", ["Operator",  "Fitter", "Welder", "Grinder", "cutter", "Buffer", "Semi_Fitter", "Electrician", "hk","Turner", "Driller",  "Driver", "Engineer", "Admin_staff", "Others",])
-        if st.form_submit_button("Save Staff Member"):
-            if name:
-                conn.table("bg_staff_master").insert({"name": name, "role": role}).execute()
-                st.success(f"Added {name} to bg_staff_master")
-                st.rerun()
+# Get Anchors from Staff Master
+staff_query = conn.table("bg_staff_master").select("name").in_("name", ["Ammu", "Kishore"]).execute()
+anchor_list = [a['name'] for a in staff_query.data] if staff_query.data else ["Ammu", "Kishore"]
+
+# --- 4. THE GATE FORM ---
+with st.form("bg_job_launch_form", clear_on_submit=True):
+    st.subheader("📍 Job Details")
+    col1, col2, col3 = st.columns(3)
     
-    # --- SECTION: EDIT / DELETE STAFF ---
-    st.divider()
-    st.subheader("🔧 Manage Existing Staff")
+    customer = col1.selectbox("Customer Name", options=["-- Select --"] + cust_list)
+    job_code = col2.text_input("New Job Code (Unique ID)", placeholder="e.g., BG-2026-001")
+    po_no = col3.text_input("PO Reference Number")
     
-    # Fetch fresh data
-    staff_df = conn.table("bg_staff_master").select("*").order("name").execute()
+    st.divider()
+    st.subheader("📐 Drawing & Dispatch Control")
+    col4, col5, col6 = st.columns(3)
     
-    if staff_df.data:
-        # 1. Select the person to edit
-        staff_list = {row["name"]: row for row in staff_df.data}
-        selected_name = st.selectbox("Select Staff to Edit/Delete", options=["-- Select --"] + list(staff_list.keys()))
-        
-        if selected_name != "-- Select --":
-            current_data = staff_list[selected_name]
-            
-            with st.form("edit_staff_form"):
-                col1, col2 = st.columns(2)
-                new_name = col1.text_input("Edit Name", value=current_data["name"])
-                # Use your updated role list here
-                new_role = col2.selectbox("Change Role", 
-                    ["Engineer", "Admin_staff", "Welder", "Fitter", "Buffer", "Cutter", "Driver", "Operator", "Worker"],
-                    index=["Engineer", "Admin_staff", "Welder", "Fitter", "Buffer", "Cutter", "Driver", "Operator", "Worker"].index(current_data["role"])
-                )
-                
-                col_btn1, col_btn2 = st.columns([1, 4])
-                update_btn = col_btn1.form_submit_button("✅ Update")
-                delete_btn = col_btn2.form_submit_button("🗑️ Delete Person")
-
-                if update_btn:
-                    conn.table("bg_staff_master").update({"name": new_name, "role": new_role}).eq("id", current_data["id"]).execute()
-                    st.success(f"Updated {new_name}")
-                    st.rerun()
-
-                if delete_btn:
-                    # Double check logic - simple delete
-                    conn.table("bg_staff_master").delete().eq("id", current_data["id"]).execute()
-                    st.warning(f"Deleted {selected_name}")
-                    st.rerun()
-
-        # 2. Always show the full table below for reference
-        st.write("### Current Staff List")
-        st.dataframe(staff_df.data, use_container_width=True, hide_index=True)
-
-# --- TAB: VEHICLES ---
-with tab_vehicle:
-    st.subheader("Register Fleet")
-    with st.form("bg_vehicle_form", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        plate = col1.text_input("Plate Number (Unique)")
-        v_model = col2.text_input("Vehicle Model")
-        if st.form_submit_button("Save Vehicle"):
-            if plate:
-                conn.table("bg_vehicle_master").insert({"plate_no": plate.upper(), "model": v_model}).execute()
-                st.success(f"Registered {plate}")
-                st.rerun()
-
-    # View Fleet
+    drw_ref = col4.text_input("Drawing Reference / Rev No.")
+    # Standardizing status as per our strategy
+    drw_stat = col5.selectbox("Drawing Status", ["Pending", "In-Progress", "Approved"])
+    dispatch_date = col6.date_input("Promised Dispatch Date")
+    
     st.divider()
-    veh_df = conn.table("bg_vehicle_master").select("*").execute()
-    if veh_df.data:
-        st.dataframe(veh_df.data, use_container_width=True, hide_index=True)
+    col7, col8 = st.columns(2)
+    anchor_name = col7.selectbox("Handling Anchor", options=anchor_list)
+    po_val = col8.number_input("PO Value (INR)", min_value=0)
 
-# --- TAB: CUSTOMERS ---
-with tab_customer:
-    st.subheader("Register Clients")
-    with st.form("bg_customer_form", clear_on_submit=True):
-        c_name = st.text_input("Company Name")
-        c_person = st.text_input("Contact Person")
-        phone = st.text_input("Phone Number")
-        if st.form_submit_button("Save Customer"):
-            if c_name:
-                conn.table("bg_customer_master").insert({
-                    "customer_name": c_name.upper(), 
-                    "contact_person": c_person,
-                    "phone": phone
-                }).execute()
-                st.success(f"Customer {c_name} Registered")
-                st.rerun()
+    if st.form_submit_button("🚀 Finalize Gate & Launch Job"):
+        if customer != "-- Select --" and job_code:
+            # We use bg_job_master specifically
+            payload = {
+                "job_code": job_code.upper(),
+                "customer_name": customer,
+                "po_no": po_no,
+                "po_value": po_val,
+                "drawing_ref": drw_ref,
+                "drawing_status": drw_stat,
+                "anchor_name": anchor_name,
+                "promised_dispatch_date": str(dispatch_date)
+            }
+            conn.table("bg_job_master").insert(payload).execute()
+            st.success(f"Job {job_code} is now LIVE!")
+            st.rerun()
+        else:
+            st.error("Missing mandatory fields: Customer and Job Code.")
 
-    # View Customers
-    st.divider()
-    cust_df = conn.table("bg_customer_master").select("*").execute()
-    if cust_df.data:
-        st.dataframe(cust_df.data, use_container_width=True, hide_index=True)
+# --- 5. VIEW ACTIVE JOBS ---
+st.divider()
+st.subheader("📋 Active Job Pipeline (bg_job_master)")
+jobs_df = conn.table("bg_job_master").select("*").order("created_at", desc=True).execute()
+if jobs_df.data:
+    st.dataframe(jobs_df.data, use_container_width=True, hide_index=True)
