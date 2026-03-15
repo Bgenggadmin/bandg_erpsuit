@@ -27,10 +27,47 @@ with tab_staff:
                 st.success(f"Added {name} to bg_staff_master")
                 st.rerun()
     
-    # View Current Staff
+    # --- SECTION: EDIT / DELETE STAFF ---
     st.divider()
-    staff_df = conn.table("bg_staff_master").select("*").execute()
+    st.subheader("🔧 Manage Existing Staff")
+    
+    # Fetch fresh data
+    staff_df = conn.table("bg_staff_master").select("*").order("name").execute()
+    
     if staff_df.data:
+        # 1. Select the person to edit
+        staff_list = {row["name"]: row for row in staff_df.data}
+        selected_name = st.selectbox("Select Staff to Edit/Delete", options=["-- Select --"] + list(staff_list.keys()))
+        
+        if selected_name != "-- Select --":
+            current_data = staff_list[selected_name]
+            
+            with st.form("edit_staff_form"):
+                col1, col2 = st.columns(2)
+                new_name = col1.text_input("Edit Name", value=current_data["name"])
+                # Use your updated role list here
+                new_role = col2.selectbox("Change Role", 
+                    ["Engineer", "Admin_staff", "Welder", "Fitter", "Buffer", "Cutter", "Driver", "Operator", "Worker"],
+                    index=["Engineer", "Admin_staff", "Welder", "Fitter", "Buffer", "Cutter", "Driver", "Operator", "Worker"].index(current_data["role"])
+                )
+                
+                col_btn1, col_btn2 = st.columns([1, 4])
+                update_btn = col_btn1.form_submit_button("✅ Update")
+                delete_btn = col_btn2.form_submit_button("🗑️ Delete Person")
+
+                if update_btn:
+                    conn.table("bg_staff_master").update({"name": new_name, "role": new_role}).eq("id", current_data["id"]).execute()
+                    st.success(f"Updated {new_name}")
+                    st.rerun()
+
+                if delete_btn:
+                    # Double check logic - simple delete
+                    conn.table("bg_staff_master").delete().eq("id", current_data["id"]).execute()
+                    st.warning(f"Deleted {selected_name}")
+                    st.rerun()
+
+        # 2. Always show the full table below for reference
+        st.write("### Current Staff List")
         st.dataframe(staff_df.data, use_container_width=True, hide_index=True)
 
 # --- TAB: VEHICLES ---
