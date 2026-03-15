@@ -1,105 +1,117 @@
 import streamlit as st
 from st_supabase_connection import SupabaseConnection
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 import pytz
 
 # --- 1. SETUP ---
 IST = pytz.timezone('Asia/Kolkata')
 st.set_page_config(page_title="B&G Production Master", layout="wide", page_icon="🏭")
-st.title("🏭 Production Master: Shop Floor Control")
-
-# --- 2. DATABASE CONNECTION ---
 conn = st.connection("supabase", type=SupabaseConnection)
 
-# --- 3. DATA LOADERS (Strictly bg_ tables) ---
+# --- 2. DATA LOADERS (Strictly bg_ tables) ---
 @st.cache_data(ttl=5)
-def get_production_data():
-    # Pulling from the Gate (created in your 01_bg_anchor_portal)
-    jobs_res = conn.table("bg_job_master").select("*").order("created_at", desc=True).execute()
-    # Pulling the logs for work entries
-    logs_res = conn.table("bg_machining_logs").select("*").order("log_time", desc=True).execute()
-    # Pulling the staff for the worker dropdown
-    staff_res = conn.table("bg_staff_master").select("name, role").execute()
-    
-    return (pd.DataFrame(jobs_res.data or []), 
-            pd.DataFrame(logs_res.data or []), 
-            pd.DataFrame(staff_res.data or []))
+def get_production_master_data():
+    try:
+        # Pulling jobs created by Anchors
+        jobs = conn.table("bg_job_master").select("*").order("id").execute()
+        # Pulling staff for Supervisor/Worker dropdowns
+        staff = conn.table("bg_staff_master").select("*").execute()
+        # Pulling existing material requests
+        po = conn.table("bg_po_master").select("*").execute()
+        
+        return (pd.DataFrame(jobs.data or []), 
+                pd.DataFrame(staff.data or []), 
+                pd.DataFrame(po.data or []))
+    except Exception as e:
+        st.error(f"Database Error: {e}")
+        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
 
-df_jobs, df_logs, df_staff = get_production_data()
+df_jobs, df_staff, df_po = get_production_master_data()
 
-# Constants pulled from Master Data
-all_workers = df_staff[df_staff['role'] != 'Admin_staff']['name'].tolist() if not df_staff.empty else []
-all_jobs = df_jobs['job_code'].tolist() if not df_jobs.empty else []
-stages = ["Cutting", "Fitting", "Welding", "Grinding", "Painting", "Assembly", "Buffing"]
+# --- 3. CONSTANTS & MAPPING ---
+# Supervisors as per your successful code
+base_supervisors = ["RamaSai", "Ravindra", "Subodth", "Prasanth", "SUNIL"]
+# Universal Stages for Gate Movement
+universal_stages = ["Cutting", "Fitting", "Welding", "Grinding", "Painting", "Assembly", "Buffing", "Others"]
+
+all_workers = df_staff['name'].tolist() if not df_staff.empty else []
+all_job_codes = df_jobs['job_code'].tolist() if not df_jobs.empty else []
 
 # --- 4. NAVIGATION TABS ---
-tab_planning, tab_entry, tab_analytics = st.tabs([
-    "🏗️ Job Status & Aging", "👷 Daily Work Entry", "📊 Shift Reports"
+tab_plan, tab_entry, tab_report = st.tabs([
+    "🏗️ Production Planning", "👷 Daily Work Entry", "📊 Shift Report"
 ])
 
-# --- TAB 1: JOB PROGRESS (Data from bg_job_master) ---
-with tab_planning:
-    st.subheader("🚀 Active Job Pipeline")
+# --- TAB 1: PRODUCTION PLANNING (Supervisor Control) ---
+with tab_plan:
+    st.subheader("🚀 Shop Floor Control Center")
     if not df_jobs.empty:
-        # Sum Man-Hours from bg_machining_logs for each job
-        hrs_map = df_logs.groupby('job_code')['quantity'].sum().to_dict() if not df_logs.empty else {}
-
         for _, row in df_jobs.iterrows():
             job_id = row['job_code']
             
-            # Logic: Aging (Days since Job was activated by Anchor)
-            created_dt = pd.to_datetime(row['created_at'])
-            days_since_start = (datetime.now(pytz.UTC) - created_dt).days
-            
             with st.container(border=True):
-                c1, c2, c3, c4 = st.columns([2, 1, 1, 1])
+                # Row 1: The Controls for the Production Team
+                col1, col2, col3, col4 = st.columns(4)
+                
+                current_stage = row.get('drawing_status', universal_stages[0])
+                prog_idx = universal_stages.index(current_stage) if current_stage in universal_stages else 0
+                
+                new_gate = col1.selectbox("Move Gate", universal_stages, index=prog_idx, key=f"gt_{job_id}")
+                new_short = col2.toggle("Material Shortage", value=False, key=f"sh_{job_id}")
+                new_rem = col3.text_input("Shortage Details", key=f"rem_{job_id}")
+                
+                # Row 2: Metrics & Visibility
+                c1, c2, c3 = st.columns([2, 1, 1])
                 c1.subheader(f"Job: {job_id} | {row['customer_name']}")
-                c1.caption(f"Drawing: {row['drawing_ref']} | PO Date: {row.get('po_date', 'N/A')}")
+                c1.caption(f"Drawing: {row['drawing_ref']} | Anchor: {row['anchor_name']}")
                 
-                c2.metric("Man-Hours", f"{hrs_map.get(job_id, 0)} Hrs")
+                # Aging Logic
+                created_at = pd.to_datetime(row['created_at']).astimezone(IST)
+                aging_days = (datetime.now(IST).date() - created_at.date()).days
+                c2.metric("Days Since Start", f"{aging_days} Days")
                 
-                # Aging Metric
-                c3.metric("Aging", f"{days_since_start} Days", delta="Check Speed" if days_since_start > 7 else "On Track")
-                
-                # Update Status (Directly to bg_job_master)
-                current_gate = row.get('drawing_status', stages[0])
-                new_gate = c4.selectbox("Move to Stage", stages, index=stages.index(current_gate) if current_gate in stages else 0, key=f"gate_{job_id}")
-                
-                if new_gate != current_gate:
-                    conn.table("bg_job_master").update({"drawing_status": new_gate}).eq("job_code", job_id).execute()
+                # Material Request (Inside Planning Tab as per your code)
+                with st.expander("🛒 Raise Material Request"):
+                    t_item = st.text_input("Item/Specs", key=f"req_{job_id}")
+                    if st.button("Send to Purchase", key=f"btn_{job_id}"):
+                        conn.table("bg_po_master").insert({
+                            "job_no": job_id, "item_description": t_item, "status": "Triggered"
+                        }).execute()
+                        st.success("Request Sent!")
+
+                if st.button("💾 Update Job Progress", key=f"upd_{job_id}", type="primary", use_container_width=True):
+                    conn.table("bg_job_master").update({
+                        "drawing_status": new_gate,
+                        "updated_at": datetime.now(IST).isoformat()
+                    }).eq("job_code", job_id).execute()
                     st.rerun()
 
-                st.progress((stages.index(new_gate) + 1) / len(stages))
+                st.progress((prog_idx + 1) / len(universal_stages))
 
-# --- TAB 2: DAILY WORK ENTRY (Into bg_machining_logs) ---
+# --- TAB 2: DAILY WORK ENTRY (Labor Output) ---
 with tab_entry:
-    st.subheader("👷 Worker Activity Log")
-    with st.form("production_entry", clear_on_submit=True):
+    st.subheader("👷 Labor Output Entry")
+    with st.form("prod_form", clear_on_submit=True):
         f1, f2, f3 = st.columns(3)
-        sel_job = f1.selectbox("Select Job Code", ["-- Select --"] + all_jobs)
-        sel_worker = f2.selectbox("Worker Name", ["-- Select --"] + all_workers)
-        sel_act = f3.selectbox("Operation", stages)
+        f_sup = f1.selectbox("Supervisor", base_supervisors)
+        f_wrk = f1.selectbox("Worker Name", ["-- Select --"] + all_workers)
+        f_job = f2.selectbox("Job Code", ["-- Select --"] + all_job_codes)
+        f_act = f2.selectbox("Activity", universal_stages)
+        f_hrs = f3.number_input("Hours Spent", min_value=0.0, step=0.5)
+        f_nts = st.text_area("Task Details")
         
-        f_hrs = st.number_input("Hours Spent", min_value=0.5, step=0.5)
-        f_rem = st.text_input("Remarks/Notes")
-        
-        if st.form_submit_button("🚀 Record Productivity"):
-            if sel_job != "-- Select --" and sel_worker != "-- Select --":
+        if st.form_submit_button("🚀 Log Productivity", use_container_width=True):
+            if "-- Select --" not in [f_wrk, f_job]:
+                # This goes to machining_logs if it's general production or a generic production table
+                # Strategy: We'll use bg_machining_logs as the general activity tracker for now
                 conn.table("bg_machining_logs").insert({
-                    "job_code": sel_job,
-                    "worker_name": sel_worker,
-                    "process": sel_act,
+                    "job_code": f_job,
+                    "worker_name": f_wrk,
+                    "process": f_act,
                     "quantity": f_hrs,
-                    "remarks": f_rem,
+                    "remarks": f_nts,
                     "log_time": datetime.now(IST).isoformat()
                 }).execute()
-                st.success(f"Work logged for {sel_job}")
+                st.success("Work Logged!")
                 st.rerun()
-
-# --- TAB 3: SHIFT REPORTS ---
-with tab_reports:
-    st.subheader("📊 Recent Production Logs")
-    if not df_logs.empty:
-        st.dataframe(df_logs[['log_time', 'job_code', 'worker_name', 'process', 'quantity', 'remarks']], 
-                     use_container_width=True, hide_index=True)
